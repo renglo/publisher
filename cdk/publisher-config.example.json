@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to publisher-config.json. One publisher stack per publisher AWS account.",
+  "_comment": "Copy to publisher-config.json. One stack per publisher_name (multiple stacks may share an AWS account).",
 
   "publisher_name": "acme",
   "github_org": "acme",

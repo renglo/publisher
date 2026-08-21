@@ -97,7 +97,7 @@ Normalize names before public release (e.g. `gmail-mod` → `renglo-gmail`, bare
 - One **domain per publisher** (e.g. `renglo`), not per customer env
 - Two repositories: `python-store`, `npm-store` (upstream PyPI / npmjs)
 - GitHub OIDC **publish** role in the publisher account; product repos set one org variable `AWS_PUBLISH_ROLE_ARN`
-- Workflows read `/publisher/config` after assume-role (no customer env name in `renglo-lib`)
+- Workflows read `/publisher/<publisher-name>/config` after assume-role (no customer env name in `renglo-lib`)
 - Optional `reader_aws_accounts` so companies like Stanley can `pip`/`npm` install
 - Optional second hop to public PyPI / npmjs (`PUBLISH_PUBLIC`)
 
@@ -209,7 +209,7 @@ On each tag, optionally also publish versioned JSON to CodeArtifact/S3 (`dumbo/d
 - [x] Peel registry out of customer stack-a (tenant templates stay auth/storage/runtime only)
 - [x] Standardize `renglo-api` on `pyproject.toml` (match `renglo-lib`)
 - [x] Normalize extension PyPI/npm names (`renglo-*`, `@renglo/*`)
-- [x] Per-repo **publish on tag** workflow (lib, api) — assume publisher role; read `/publisher/config`
+- [x] Per-repo **publish on tag** workflow (lib, api) — assume publisher role; read publisher SSM config
 
 **Exit criteria:** `pip install renglo-lib==x renglo-api==x` from the **Renglo publisher** CodeArtifact in a clean venv.
 
@@ -218,8 +218,9 @@ Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publis
 | Variable | Stack output |
 |----------|----------------|
 | `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` |
+| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` (e.g. `/publisher/renglo/config`) |
 
-Optional: `AWS_REGION` (default `us-east-1`). Domain and repository names come from SSM `/publisher/config`, not from product repos.
+Optional: `AWS_REGION` (default `us-east-1`). Domain and repository names come from the publisher's SSM config, not from product repos.
 
 Push a `v*` tag (or run **Publish Python to publisher registry**). Then in a clean venv:
 

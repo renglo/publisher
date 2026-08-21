@@ -27,10 +27,12 @@ Think of an extension the way you think of a plugin for an editor or a payment S
 
 A typical extension repo holds:
 
-| Piece | Registry | Example name |
-|-------|----------|----------------|
-| Python package (handlers, APIs, blueprints shipped in the wheel) | CodeArtifact `python-store` (optional public PyPI later) | `acme-mail` |
-| UI package (console screens, widgets) | CodeArtifact `npm-store` (optional public npmjs later) | `@acme/mail` |
+
+| Piece                                                            | Registry                                                 | Example name |
+| ---------------------------------------------------------------- | -------------------------------------------------------- | ------------ |
+| Python package (handlers, APIs, blueprints shipped in the wheel) | CodeArtifact `python-store` (optional public PyPI later) | `acme-mail`  |
+| UI package (console screens, widgets)                            | CodeArtifact `npm-store` (optional public npmjs later)   | `@acme/mail` |
+
 
 You may also publish **platform libraries** the same way (a shared core used by many extensions). Same pipeline: tag → package → registry.
 
@@ -64,12 +66,14 @@ Same idea for npm. When they want 1.5.0, they bump the pin — they do not re-cl
 
 ## Two roles (do not mix them)
 
-| | Publisher (this repo) | Project / customer |
-|---|-----------------------|--------------------|
-| AWS account | Yours | Theirs (or another of yours) |
-| Job | Host packages; accept publishes from your GitHub org | Run the product; `pip` / `npm` install |
-| Stack | `<publisher-name>-publisher` | Their app infrastructure (Lambdas, databases, …) |
-| GitHub | Product repos (`mail`, `scheduler`, …) | Releases / deploy repo |
+
+|             | Publisher (this repo)                                | Project / customer                               |
+| ----------- | ---------------------------------------------------- | ------------------------------------------------ |
+| AWS account | Yours                                                | Theirs (or another of yours)                     |
+| Job         | Host packages; accept publishes from your GitHub org | Run the product; `pip` / `npm` install           |
+| Stack       | `<publisher-name>-publisher`                         | Their app infrastructure (Lambdas, databases, …) |
+| GitHub      | Product repos (`mail`, `scheduler`, …)               | Releases / deploy repo                           |
+
 
 A company can wear **both hats**. They deploy this stack for extensions they own, and they add *other* publishers’ AWS accounts as readers (or the reverse: other publishers add *them* as readers).
 
@@ -88,15 +92,19 @@ A company can wear **both hats**. They deploy this stack for extensions they own
 
 ## What the stack creates
 
-| Resource | Name / path |
-|----------|-------------|
-| CloudFormation stack | `<publisher-name>-publisher` |
-| CodeArtifact domain | sanitized publisher name (letters, digits, hyphens) |
-| Repositories | `python-store` (upstream public PyPI), `npm-store` (upstream public npmjs) |
-| IAM role | `GitHubActionsPublishRole-<publisher-name>` |
-| SSM | `/publisher/config` — domain and repo names so workflows stay generic |
+
+| Resource             | Name / path                                                                |
+| -------------------- | -------------------------------------------------------------------------- |
+| CloudFormation stack | `<publisher-name>-publisher`                                               |
+| CodeArtifact domain  | sanitized publisher name (letters, digits, hyphens)                        |
+| Repositories         | `python-store` (upstream public PyPI), `npm-store` (upstream public npmjs) |
+| IAM role             | `GitHubActionsPublishRole-<publisher-name>`                                |
+| SSM                  | `/publisher/<publisher-name>/config` — domain and repo names for workflows |
+
 
 `reader_aws_accounts` adds a CodeArtifact **resource policy** so those accounts may call `GetAuthorizationToken` and `ReadFromRepository`. Each reader account still needs **its own** IAM (`codeartifact:GetAuthorizationToken`, `sts:GetServiceBearerToken`, `ReadFromRepository`). That policy lives on the project side, not in this stack.
+
+**Multiple publishers in one AWS account:** Supported. Each `publisher_name` gets its own stack, CodeArtifact domain, IAM role, and SSM path. Deploy with a different `publisher-config.json` per publisher (or swap config between deploys). Only the GitHub OIDC provider is shared — set `CreateGitHubOIDC=false` on the second and later deploys.
 
 ---
 
@@ -113,29 +121,41 @@ python3.12 -m venv ../venv
 source ../venv/bin/activate
 pip install -r requirements.txt
 
-cdk synth
-cdk deploy <publisher-name>-publisher --app "python app.py"
+export AWS_PROFILE=<aws-profile>
+export AWS_REGION=<aws-region>
+aws sts get-caller-identity --profile "$AWS_PROFILE"
+
+cdk synth --profile "$AWS_PROFILE"
+cdk deploy <publisher-name>-publisher --app "python app.py" --profile "$AWS_PROFILE"
 ```
+
+`app.py` exits if `AWS_PROFILE` is unset or `default`. Pass `--profile` (CDK forwards it as `AWS_PROFILE`) or export the variable. Profile names are machine-local — they do not belong in `publisher-config.json`.
 
 Add `--parameters CreateGitHubOIDC=true` only if this account does not already have the GitHub Actions OIDC provider (`token.actions.githubusercontent.com`). If another stack already created it, leave the default `false`.
 
-Copy stack output `OidcPublishRoleArn`.
+Copy stack outputs `OidcPublishRoleArn` and `PublisherConfigParameter`.
 
 ---
 
 ## Connect GitHub (each product repo)
 
-Product repositories should not know customer names, env names, or CodeArtifact domain strings. They only need **one** Actions variable (org-level is enough for every repo under this publisher):
+Product repositories should not know customer names, env names, or CodeArtifact domain strings. Set these **org-level** Actions variables (enough for every repo under this publisher):
 
-| Variable | Value |
-|----------|--------|
-| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from `<publisher-name>-publisher` |
+
+| Variable                 | Value                                                       |
+| ------------------------ | ----------------------------------------------------------- |
+| `AWS_PUBLISH_ROLE_ARN`   | `OidcPublishRoleArn` from `<publisher-name>-publisher`      |
+| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` from the same stack (preferred)  |
+
+
+Alternatively set `PUBLISHER_NAME` to the same value as `publisher_name` in config (e.g. `renglo`) instead of `PUBLISHER_CONFIG_PARAM`.
+
 
 Optional: `AWS_REGION` (default `us-east-1`, must match this stack), `PACKAGE_DIR` if the package is not at the repo root (`package` or `ui`), `PUBLISH_PUBLIC=true` plus secrets `PYPI_API_TOKEN` / `NPM_TOKEN`.
 
 Copy [workflows/publish-python.yml](workflows/publish-python.yml) to `.github/workflows/publish.yml` in each Python repo. Copy [workflows/publish-npm.yml](workflows/publish-npm.yml) for UI packages.
 
-The job assumes the publisher role, reads `/publisher/config`, builds, and uploads. After you bump `version` in `pyproject.toml` / `package.json` and commit:
+The job assumes the publisher role, reads the publisher's SSM config, builds, and uploads. After you bump `version` in `pyproject.toml` / `package.json` and commit:
 
 ```bash
 git tag v1.4.0

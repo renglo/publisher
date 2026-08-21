@@ -1,7 +1,8 @@
 """Package registry: CodeArtifact + GitHub OIDC publish role.
 
-One stack per publisher AWS account. Product repos (renglo-lib, extensions, …)
-are not parameterized here — they publish by assuming the OIDC role.
+One stack per publisher (unique publisher_name). Multiple stacks may coexist in
+the same AWS account and region; each gets its own domain, IAM role, and SSM
+config path (/publisher/<name>/config).
 """
 
 from __future__ import annotations
@@ -20,9 +21,13 @@ GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 GITHUB_OIDC_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 GITHUB_OIDC_CLIENT_ID = "sts.amazonaws.com"
 
-PUBLISHER_CONFIG_PARAM = "/publisher/config"
 PYTHON_REPO_DEFAULT = "python-store"
 NPM_REPO_DEFAULT = "npm-store"
+
+
+def publisher_config_param(publisher_name: str) -> str:
+    """SSM path for this publisher's registry metadata (unique per publisher_name)."""
+    return f"/publisher/{sanitize_domain_name(publisher_name)}/config"
 
 
 def sanitize_domain_name(publisher_name: str) -> str:
@@ -79,6 +84,7 @@ class PublisherStack(Stack):
         aws_account = self.account
         aws_region = self.region
         domain_name = sanitize_domain_name(publisher_name)
+        config_param = publisher_config_param(publisher_name)
         python_repository = (python_repository or PYTHON_REPO_DEFAULT).strip() or PYTHON_REPO_DEFAULT
         npm_repository = (npm_repository or NPM_REPO_DEFAULT).strip() or NPM_REPO_DEFAULT
         readers = [a.strip() for a in (reader_aws_accounts or []) if str(a).strip()]
@@ -169,7 +175,7 @@ class PublisherStack(Stack):
             _package_arn(aws_region, aws_account, domain_name, npm_repository),
         ]
         config_param_arn = (
-            f"arn:aws:ssm:{aws_region}:{aws_account}:parameter{PUBLISHER_CONFIG_PARAM}"
+            f"arn:aws:ssm:{aws_region}:{aws_account}:parameter{config_param}"
         )
 
         publish_role = iam.Role(
@@ -244,12 +250,12 @@ class PublisherStack(Stack):
             "domain": domain_name,
             "python_repository": python_repository,
             "npm_repository": npm_repository,
-            "config_parameter": PUBLISHER_CONFIG_PARAM,
+            "config_parameter": config_param,
         }
         ssm.CfnParameter(
             self,
             "PublisherConfig",
-            name=PUBLISHER_CONFIG_PARAM,
+            name=config_param,
             type="String",
             tier="Standard",
             value=json.dumps(config, separators=(",", ":")),
@@ -262,7 +268,7 @@ class PublisherStack(Stack):
         CfnOutput(self, "CodeArtifactPythonRepository", value=python_repository)
         CfnOutput(self, "CodeArtifactNpmRepository", value=npm_repository)
         CfnOutput(self, "OidcPublishRoleArn", value=publish_role.role_arn)
-        CfnOutput(self, "PublisherConfigParameter", value=PUBLISHER_CONFIG_PARAM)
+        CfnOutput(self, "PublisherConfigParameter", value=config_param)
         CfnOutput(self, "GithubOrg", value=github_org)
 
 

@@ -10,18 +10,42 @@ publisher AWS account and region at deploy time.
     cp publisher-config.example.json publisher-config.json
     python3.12 -m venv ../venv && source ../venv/bin/activate
     pip install -r requirements.txt
-    cdk synth
-    cdk deploy <publisher-name>-publisher [--parameters CreateGitHubOIDC=true]
+    export AWS_PROFILE=<your-publisher-profile>
+    cdk synth --profile "$AWS_PROFILE"
+    cdk deploy <publisher-name>-publisher --profile "$AWS_PROFILE"
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
 import aws_cdk as cdk
 
 from stacks.registry import PublisherStack
+
+
+def _require_explicit_profile() -> str:
+    """Refuse the default credential chain so this never lands in the wrong account."""
+    profile = (
+        os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE") or ""
+    ).strip()
+    if not profile or profile == "default":
+        raise SystemExit(
+            "Refusing to synth/deploy without an explicit AWS profile "
+            "(AWS_PROFILE is missing or set to 'default').\n"
+            "  export AWS_PROFILE=<your-publisher-profile>\n"
+            "  aws sts get-caller-identity --profile \"$AWS_PROFILE\"\n"
+            "  cdk deploy <publisher-name>-publisher --profile \"$AWS_PROFILE\"\n"
+            "List profiles: aws configure list-profiles"
+        )
+    print(f"Using AWS profile: {profile}", file=sys.stderr)
+    return profile
+
+
+_require_explicit_profile()
 
 _ROOT = Path(__file__).resolve().parent
 _CONFIG_PATH = _ROOT / "publisher-config.json"
