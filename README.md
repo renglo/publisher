@@ -212,31 +212,33 @@ In GitHub: **that repo → Settings → Secrets and variables → Actions → Va
 | `AWS_PUBLISH_ROLE_ARN`   | `OidcPublishRoleArn` from 2b       | Same ARN in every connected repo               |
 | `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` from 2b | Full SSM path, e.g. `/publisher/renglo/config` |
 | `AWS_REGION`             | Region from Step 1                 | Must match deploy region                       |
-| `PACKAGE_DIR`            | See table below                    | Where `pyproject.toml` or `package.json` lives |
 
-
-`PACKAGE_DIR` — set explicitly for almost every repo:
-
-
-| Repo layout             | `PACKAGE_DIR` | Examples                                 |
-| ----------------------- | ------------- | ---------------------------------------- |
-| Python at repo root     | `.`           | `renglo-lib`, `renglo-api`               |
-| Python under `package/` | `package`     | `data`, `schd`, `dumbo`, most extensions |
-| npm UI under `ui/`      | `ui`          | extension console packages               |
-
-
-The workflow reads registry settings from SSM using `PUBLISHER_CONFIG_PARAM`. No other SSM-related variable is needed.
+Set **`PACKAGE_DIR` only for single-artifact repos** (see 2d). Extension repos with both `package/` and `ui/` use [workflows/publish-extension.yml](workflows/publish-extension.yml) and do **not** need `PACKAGE_DIR`.
 
 #### 2d. Add the workflow file
 
+Pick **one row** for the repo:
 
-| Repo type | Copy from                                                    | Destination                     |
-| --------- | ------------------------------------------------------------ | ------------------------------- |
-| Python    | [workflows/publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
-| npm UI    | [workflows/publish-npm.yml](workflows/publish-npm.yml)       | `.github/workflows/publish.yml` |
+| Repo type | Layout | Workflow to copy | Destination |
+| --------- | ------ | ---------------- | ----------- |
+| Python only | `pyproject.toml` at root | [publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
+| Python only | `package/pyproject.toml` | [publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
+| npm only | `ui/package.json` | [publish-npm.yml](workflows/publish-npm.yml) | `.github/workflows/publish.yml` |
+| **Extension (Python + npm)** | `package/` **and** `ui/` | [publish-extension.yml](workflows/publish-extension.yml) | `.github/workflows/publish.yml` |
 
+**`PACKAGE_DIR`** (repo variable — single-artifact repos only):
 
-Commit and push to the repo's default branch.
+| When using | Set `PACKAGE_DIR` to | Examples |
+| ---------- | -------------------- | -------- |
+| `publish-python.yml`, Python at root | `.` | `renglo-lib`, `renglo-api` |
+| `publish-python.yml`, Python under `package/` | `package` | Rare — prefer `publish-extension.yml` if `ui/` also exists |
+| `publish-npm.yml` | `ui` | Standalone UI repos only |
+
+**Extension repos (`data`, `schd`, `dumbo`, …):** one git tag publishes **both** artifacts. [publish-extension.yml](workflows/publish-extension.yml) runs two jobs — Python from `package/`, npm from `ui/` — with directories fixed in the workflow. You only set the three variables above (no `PACKAGE_DIR`).
+
+On release, bump **`version` in both** `package/pyproject.toml` and `ui/package.json` to the same semver before tagging.
+
+Commit and push the workflow file to the repo's default branch.
 
 ---
 
@@ -254,7 +256,7 @@ By default, tags publish **only to CodeArtifact**. Set these on **that repo only
 
 **Warnings:**
 
-- `**PUBLISH_PUBLIC` makes the package public** on PyPI/npmjs — anyone can install it without CodeArtifact credentials.
+- **`PUBLISH_PUBLIC` makes the package public** on PyPI/npmjs — anyone can install it without CodeArtifact credentials.
 - **Public package ≠ public GitHub repo**, but open-source packages usually live in public repos. Do not enable for proprietary code.
 - **Public release is effectively irreversible.** Bump version and publish a fix; do not rely on unpublish.
 - Proprietary extensions (e.g. `props`) should never set `PUBLISH_PUBLIC`.
@@ -269,9 +271,9 @@ A git tag triggers the publish workflow. The **version consumers install** comes
 
 **Do these steps in order:**
 
-**1. Declare the new version in the manifest**
+**1. Declare the new version in the manifest(s)**
 
-Python — edit `version` in `pyproject.toml` (path depends on `PACKAGE_DIR`):
+Python — edit `version` in `pyproject.toml`:
 
 ```toml
 [project]
@@ -279,7 +281,9 @@ name = "renglo-data"
 version = "1.0.1"
 ```
 
-npm — edit `version` in `ui/package.json` (or root `package.json`):
+Extension repos — bump **both** `package/pyproject.toml` and `ui/package.json` to the same version.
+
+npm-only — edit `version` in `ui/package.json` (or root `package.json`):
 
 ```json
 "version": "1.0.1"
