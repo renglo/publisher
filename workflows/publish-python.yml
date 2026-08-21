@@ -3,12 +3,13 @@ name: Publish Python to publisher registry
 # Copy this file to each Python product repo (.github/workflows/publish.yml).
 # Canonical copy: ops/publisher/workflows/publish-python.yml
 #
-# GitHub Actions variables (org or repo):
+# GitHub Actions repository variables (set on each product repo — not org-wide):
 #   AWS_PUBLISH_ROLE_ARN      output OidcPublishRoleArn of <publisher-name>-publisher
-#   PUBLISHER_CONFIG_PARAM    output PublisherConfigParameter (preferred)
-#   PUBLISHER_NAME            alternative — must match publisher_name (e.g. renglo)
+#   PUBLISHER_CONFIG_PARAM    output PublisherConfigParameter
+#   AWS_REGION                same region as publisher stack deploy
+#   PACKAGE_DIR               . | package | ui
 #
-# Optional:
+# Optional (repo-level):
 #   AWS_REGION             default us-east-1 (must match the publisher stack region)
 #   PACKAGE_DIR            default .  (use "package" for Renglo-style extensions)
 #   PUBLISH_PUBLIC         "true" to also upload to PyPI (needs secret PYPI_API_TOKEN)

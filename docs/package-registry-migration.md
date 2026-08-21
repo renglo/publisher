@@ -213,14 +213,16 @@ On each tag, optionally also publish versioned JSON to CodeArtifact/S3 (`dumbo/d
 
 **Exit criteria:** `pip install renglo-lib==x renglo-api==x` from the **Renglo publisher** CodeArtifact in a clean venv.
 
-Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publisher`). Set **one** GitHub org variable:
+Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publisher`). For **each** product repo, set repository Actions variables (not org-wide):
 
 | Variable | Stack output |
 |----------|----------------|
 | `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` |
 | `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` (e.g. `/publisher/renglo/config`) |
+| `AWS_REGION` | Same region as deploy |
+| `PACKAGE_DIR` | `.`, `package`, or `ui` per repo layout |
 
-Optional: `AWS_REGION` (default `us-east-1`). Domain and repository names come from the publisher's SSM config, not from product repos.
+Also list each repo in `github_publish_repos` in `publisher-config.json`. Domain and repository names come from the publisher's SSM config, not from product repos.
 
 Push a `v*` tag (or run **Publish Python to publisher registry**). Then in a clean venv:
 

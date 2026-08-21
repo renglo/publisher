@@ -133,39 +133,187 @@ cdk deploy <publisher-name>-publisher --app "python app.py" --profile "$AWS_PROF
 
 Add `--parameters CreateGitHubOIDC=true` only if this account does not already have the GitHub Actions OIDC provider (`token.actions.githubusercontent.com`). If another stack already created it, leave the default `false`.
 
-Copy stack outputs `OidcPublishRoleArn` and `PublisherConfigParameter`.
-
 ---
 
-## Connect GitHub (each product repo)
+## Connect GitHub and publish packages
 
-Product repositories should not know customer names, env names, or CodeArtifact domain strings. Set these **org-level** Actions variables (enough for every repo under this publisher):
+Publishing is configured **per product repository**. Credentials and registry pointers live in that repo's GitHub Actions settings — not at org level — so random repos in the org cannot inherit publish access.
+
+**Two gates must both allow the repo:**
+
+1. **AWS** — repo name listed in `github_publish_repos` in `publisher-config.json` (OIDC trust on the publish role).
+2. **GitHub** — that repo has the workflow file and repository variables set below.
+
+Product repos never hard-code CodeArtifact domain names or customer env names.
+
+### Step 1 — Find your AWS region
+
+Publish workflows must call AWS in the **same region where you deployed** `<publisher-name>-publisher`. You will paste this value into **each** product repo in Step 2.
+
+**Where to get it:**
 
 
-| Variable                 | Value                                                       |
-| ------------------------ | ----------------------------------------------------------- |
-| `AWS_PUBLISH_ROLE_ARN`   | `OidcPublishRoleArn` from `<publisher-name>-publisher`      |
-| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` from the same stack (preferred)  |
+| Source                 | How                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| Your deploy shell      | The `AWS_REGION` (or `--region`) you used with `cdk deploy`                    |
+| AWS CLI profile        | `aws configure get region --profile <aws-profile>`                             |
+| CloudFormation console | **CloudFormation → Stacks → `<publisher-name>-publisher` → Overview → Region** |
 
-
-Alternatively set `PUBLISHER_NAME` to the same value as `publisher_name` in config (e.g. `renglo`) instead of `PUBLISHER_CONFIG_PARAM`.
-
-
-Optional: `AWS_REGION` (default `us-east-1`, must match this stack), `PACKAGE_DIR` if the package is not at the repo root (`package` or `ui`), `PUBLISH_PUBLIC=true` plus secrets `PYPI_API_TOKEN` / `NPM_TOKEN`.
-
-Copy [workflows/publish-python.yml](workflows/publish-python.yml) to `.github/workflows/publish.yml` in each Python repo. Copy [workflows/publish-npm.yml](workflows/publish-npm.yml) for UI packages.
-
-The job assumes the publisher role, reads the publisher's SSM config, builds, and uploads. After you bump `version` in `pyproject.toml` / `package.json` and commit:
 
 ```bash
-git tag v1.4.0
-git push origin v1.4.0
+export AWS_PROFILE=<aws-profile>
+aws configure get region --profile "$AWS_PROFILE"
 ```
 
-The tag starts publish. The **package version** is whatever is in the manifest, not the tag string — keep them aligned.
+Example result: `us-east-1`. Write it down — you need it for every repo you connect.
 
 ---
 
-## Public PyPI / npmjs
+### Step 2 — Configure each product repository
 
-CodeArtifact is always the publisher registry (private or shared with listed accounts). If a package is open source, set `PUBLISH_PUBLIC=true` and the matching token so the same tag can also land on the public index. Keep proprietary packages off public indexes.
+Repeat this block **for every repo** that should publish (e.g. `renglo-lib`, `renglo-api`, `data`, `schd`). Skip repos that will never publish.
+
+#### 2a. Allow the repo in AWS
+
+In `publisher-config.json`, list the repo **by name** under `github_publish_repos`:
+
+```json
+"github_publish_repos": ["renglo-lib", "renglo-api", "data", "schd"]
+```
+
+Redeploy the publisher stack if you change this list. Avoid `["*"]` unless you intentionally want **any** repo in the GitHub org to assume the publish role — listing explicit repo names is safer.
+
+#### 2b. Get the shared stack outputs (once)
+
+Run these once; the same three values go into **each** product repo you connect:
+
+```bash
+export AWS_PROFILE=<aws-profile>
+export AWS_REGION=<aws-region>          # from Step 1
+export STACK=<publisher-name>-publisher
+
+aws cloudformation describe-stacks \
+  --stack-name "$STACK" \
+  --profile "$AWS_PROFILE" \
+  --region "$AWS_REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`OidcPublishRoleArn` || OutputKey==`PublisherConfigParameter`].[OutputKey,OutputValue]' \
+  --output table
+```
+
+Copy `OidcPublishRoleArn` and `PublisherConfigParameter`. 
+
+#### 2c. Set repository variables
+
+In GitHub: **that repo → Settings → Secrets and variables → Actions → Variables → New repository variable**
+
+
+| Variable                 | Value                              | Notes                                          |
+| ------------------------ | ---------------------------------- | ---------------------------------------------- |
+| `AWS_PUBLISH_ROLE_ARN`   | `OidcPublishRoleArn` from 2b       | Same ARN in every connected repo               |
+| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` from 2b | Full SSM path, e.g. `/publisher/renglo/config` |
+| `AWS_REGION`             | Region from Step 1                 | Must match deploy region                       |
+| `PACKAGE_DIR`            | See table below                    | Where `pyproject.toml` or `package.json` lives |
+
+
+`PACKAGE_DIR` — set explicitly for almost every repo:
+
+
+| Repo layout             | `PACKAGE_DIR` | Examples                                 |
+| ----------------------- | ------------- | ---------------------------------------- |
+| Python at repo root     | `.`           | `renglo-lib`, `renglo-api`               |
+| Python under `package/` | `package`     | `data`, `schd`, `dumbo`, most extensions |
+| npm UI under `ui/`      | `ui`          | extension console packages               |
+
+
+The workflow reads registry settings from SSM using `PUBLISHER_CONFIG_PARAM`. No other SSM-related variable is needed.
+
+#### 2d. Add the workflow file
+
+
+| Repo type | Copy from                                                    | Destination                     |
+| --------- | ------------------------------------------------------------ | ------------------------------- |
+| Python    | [workflows/publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
+| npm UI    | [workflows/publish-npm.yml](workflows/publish-npm.yml)       | `.github/workflows/publish.yml` |
+
+
+Commit and push to the repo's default branch.
+
+---
+
+### Step 3 — Optional: also publish to public PyPI / npmjs
+
+By default, tags publish **only to CodeArtifact**. Set these on **that repo only** if you want a public index too:
+
+
+| Setting          | Where             | Value                   |
+| ---------------- | ----------------- | ----------------------- |
+| `PUBLISH_PUBLIC` | Repo **variable** | `true`                  |
+| `PYPI_API_TOKEN` | Repo **secret**   | PyPI API token (Python) |
+| `NPM_TOKEN`      | Repo **secret**   | npm token (UI)          |
+
+
+**Warnings:**
+
+- `**PUBLISH_PUBLIC` makes the package public** on PyPI/npmjs — anyone can install it without CodeArtifact credentials.
+- **Public package ≠ public GitHub repo**, but open-source packages usually live in public repos. Do not enable for proprietary code.
+- **Public release is effectively irreversible.** Bump version and publish a fix; do not rely on unpublish.
+- Proprietary extensions (e.g. `props`) should never set `PUBLISH_PUBLIC`.
+
+---
+
+### Step 4 — Release a version (order matters)
+
+A git tag triggers the publish workflow. The **version consumers install** comes from the manifest (`pyproject.toml` or `package.json`), **not** from the tag string. Keep them aligned.
+
+**What “bump the version” means:** increment the semver in the manifest before you release — e.g. `1.0.0` → `1.0.1` (patch), `1.1.0` (minor), or `2.0.0` (major).
+
+**Do these steps in order:**
+
+**1. Declare the new version in the manifest**
+
+Python — edit `version` in `pyproject.toml` (path depends on `PACKAGE_DIR`):
+
+```toml
+[project]
+name = "renglo-data"
+version = "1.0.1"
+```
+
+npm — edit `version` in `ui/package.json` (or root `package.json`):
+
+```json
+"version": "1.0.1"
+```
+
+**2. Commit and push to the main branch**
+
+```bash
+git add pyproject.toml          # or package/pyproject.toml, ui/package.json, etc.
+git commit -m "Release 1.0.1"
+git push origin main
+```
+
+**3. Tag with the same version (prefixed with** `v`**)**
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The tag push starts **Publish to publisher registry** in GitHub Actions. The workflow builds from `PACKAGE_DIR` and uploads `1.0.1` to CodeArtifact.
+
+**Common mistakes:**
+
+
+| Mistake                                          | Result                                                 |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| Tag before bumping the manifest                  | Old version gets republished                           |
+| Tag `v1.0.2` but manifest says `1.0.1`           | Confusing releases; consumers see `1.0.1` on the index |
+| Bump version but forget to commit before tagging | Tag points at a commit that still has the old version  |
+| Wrong `PACKAGE_DIR`                              | Build fails or publishes the wrong tree                |
+
+
+**Check the run:** repo → **Actions** → workflow run for the tag → confirm CodeArtifact upload succeeded.
+
+---
+
