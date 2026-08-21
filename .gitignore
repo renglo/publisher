@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+build/
+dist/
+.venv/
+venv/
+cdk/cdk.out/
+cdk/studio-config.json
+.DS_Store
+*.log

@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy to studio-config.json. One publisher stack per studio AWS account.",
+
+  "studio_name": "acme",
+  "github_org": "acme",
+
+  "github_publish_repos": ["*"],
+  "_github_publish_repos_note": "Repo names in github_org that may assume the publish role. Use [\"*\"] for the whole org, or list repos (mail, scheduler, …).",
+
+  "reader_aws_accounts": [],
+  "_reader_aws_accounts_note": "AWS accounts allowed to pip/npm install from this studio registry (customer or partner accounts). Empty = same-account only. Cross-account still needs IAM in the reader account (see README).",
+
+  "python_repository": "python-store",
+  "npm_repository": "npm-store",
+
+  "_account_region_note": "Account and region are not in this file. Templates are env-agnostic (AWS::AccountId / AWS::Region). Choose them at deploy time (AWS profile / CLI region)."
+}
