@@ -9,6 +9,6 @@ dist/
 .venv/
 venv/
 cdk/cdk.out/
-cdk/studio-config.json
+cdk/publisher-config.json
 .DS_Store
 *.log

@@ -1,14 +1,14 @@
 {
-  "_comment": "Copy to studio-config.json. One publisher stack per studio AWS account.",
+  "_comment": "Copy to publisher-config.json. One publisher stack per publisher AWS account.",
 
-  "studio_name": "acme",
+  "publisher_name": "acme",
   "github_org": "acme",
 
   "github_publish_repos": ["*"],
   "_github_publish_repos_note": "Repo names in github_org that may assume the publish role. Use [\"*\"] for the whole org, or list repos (mail, scheduler, …).",
 
   "reader_aws_accounts": [],
-  "_reader_aws_accounts_note": "AWS accounts allowed to pip/npm install from this studio registry (customer or partner accounts). Empty = same-account only. Cross-account still needs IAM in the reader account (see README).",
+  "_reader_aws_accounts_note": "AWS accounts allowed to pip/npm install from this publisher registry (customer or partner accounts). Empty = same-account only. Cross-account still needs IAM in the reader account (see README).",
 
   "python_repository": "python-store",
   "npm_repository": "npm-store",

@@ -1,10 +1,10 @@
-name: Publish Python to studio registry
+name: Publish Python to publisher registry
 
 # Copy this file to each Python product repo (.github/workflows/publish.yml).
 # Canonical copy: ops/publisher/workflows/publish-python.yml
 #
 # GitHub Actions variable (org or repo) — the only required one:
-#   AWS_PUBLISH_ROLE_ARN   output OidcPublishRoleArn of <studio>-publisher
+#   AWS_PUBLISH_ROLE_ARN   output OidcPublishRoleArn of <publisher-name>-publisher
 #
 # Optional:
 #   AWS_REGION             default us-east-1 (must match the publisher stack region)

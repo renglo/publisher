@@ -91,12 +91,12 @@ Normalize names before public release (e.g. `gmail-mod` → `renglo-gmail`, bare
 
 
 
-### Phase A — Studio CodeArtifact (now)
+### Phase A — Publisher CodeArtifact (now)
 
-- **Not** part of customer stack-a / stack-b. Registry lives in `ops/publisher` (`<studio>-publisher`).
-- One **domain per studio** (e.g. `renglo`), not per customer env
+- **Not** part of customer stack-a / stack-b. Registry lives in `ops/publisher` (`<publisher-name>-publisher`).
+- One **domain per publisher** (e.g. `renglo`), not per customer env
 - Two repositories: `python-store`, `npm-store` (upstream PyPI / npmjs)
-- GitHub OIDC **publish** role in the studio account; product repos set one org variable `AWS_PUBLISH_ROLE_ARN`
+- GitHub OIDC **publish** role in the publisher account; product repos set one org variable `AWS_PUBLISH_ROLE_ARN`
 - Workflows read `/publisher/config` after assume-role (no customer env name in `renglo-lib`)
 - Optional `reader_aws_accounts` so companies like Stanley can `pip`/`npm` install
 - Optional second hop to public PyPI / npmjs (`PUBLISH_PUBLIC`)
@@ -205,13 +205,13 @@ On each tag, optionally also publish versioned JSON to CodeArtifact/S3 (`dumbo/d
 
 ### Phase 0 — Foundations
 
-- [x] Studio publisher CDK (`ops/publisher`) — CodeArtifact domain + python/npm stores + GitHub OIDC publish role
+- [x] Publisher CDK (`ops/publisher`) — CodeArtifact domain + python/npm stores + GitHub OIDC publish role
 - [x] Peel registry out of customer stack-a (tenant templates stay auth/storage/runtime only)
 - [x] Standardize `renglo-api` on `pyproject.toml` (match `renglo-lib`)
 - [x] Normalize extension PyPI/npm names (`renglo-*`, `@renglo/*`)
-- [x] Per-repo **publish on tag** workflow (lib, api) — assume studio publish role; read `/publisher/config`
+- [x] Per-repo **publish on tag** workflow (lib, api) — assume publisher role; read `/publisher/config`
 
-**Exit criteria:** `pip install renglo-lib==x renglo-api==x` from the **Renglo studio** CodeArtifact in a clean venv.
+**Exit criteria:** `pip install renglo-lib==x renglo-api==x` from the **Renglo publisher** CodeArtifact in a clean venv.
 
 Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publisher`). Set **one** GitHub org variable:
 
@@ -221,12 +221,12 @@ Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publis
 
 Optional: `AWS_REGION` (default `us-east-1`). Domain and repository names come from SSM `/publisher/config`, not from product repos.
 
-Push a `v*` tag (or run **Publish Python to studio registry**). Then in a clean venv:
+Push a `v*` tag (or run **Publish Python to publisher registry**). Then in a clean venv:
 
 ```bash
 aws codeartifact login --tool pip \
   --domain renglo \
-  --domain-owner "$STUDIO_AWS_ACCOUNT" \
+  --domain-owner "$PUBLISHER_AWS_ACCOUNT" \
   --repository python-store
 pip install "renglo-lib==1.0.0" "renglo-api==1.0.0"
 ```
@@ -241,7 +241,7 @@ Distribution names after this phase (import packages unchanged):
 | `renglo-data`, `renglo-schd`, `renglo-pes`, `renglo-props`, … | `data`, `schd`, `pes`, `props`, … |
 | `@renglo/data`, `@renglo/schd`, `@renglo/breakdown`, … | console aliases |
 
-The publish role trusts `repo:<github_org>/<repos>` from `studio-config.json` (Renglo example: whole `renglo` org).
+The publish role trusts `repo:<github_org>/<repos>` from `publisher-config.json` (Renglo example: whole `renglo` org).
 
 ### Phase 1 — Core platform off git clone
 
@@ -310,7 +310,7 @@ Smallest step that fixes private-repo CI pain for the backend:
 | Console repo layout                 | Separate `renglo/console` → `@renglo/console` |      |             |
 | Blueprint delivery                  | Current JSON in Python wheel; seed Dynamo; code-first resolve | 2026-08-20 | Full tag history deferred |
 | Monorepo tooling per extension      | TBD: uv workspace / npm workspaces            |      |             |
-| CodeArtifact domain name            | Per studio via `ops/publisher` (`renglo`, …) | 2026-08-20 | Not in customer stack-a |
+| CodeArtifact domain name            | Per publisher via `ops/publisher` (`renglo`, …) | 2026-08-20 | Not in customer stack-a |
 
 
 ---
@@ -327,7 +327,7 @@ Smallest step that fixes private-repo CI pain for the backend:
 | `ops/<extension-name>-releases/scripts/install_backend_packages.py` | Local pip install (to be retired)          |
 | `ops/<extension-name>-releases/Dockerfile`                          | Lambda image build                         |
 | `console/EXTENSIONS_README.md`                             | Extension UI; Method 3 = npm install       |
-| `ops/publisher/README.md`                                  | Studio CodeArtifact + OIDC publish         |
+| `ops/publisher/README.md`                                  | CodeArtifact + OIDC publish                 |
 | `ops/bootstrap/README.md`                                  | Path A cloud deploy / CI contract          |
 
 

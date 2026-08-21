@@ -1,6 +1,6 @@
-"""Studio package registry: CodeArtifact + GitHub OIDC publish role.
+"""Package registry: CodeArtifact + GitHub OIDC publish role.
 
-One stack per studio AWS account. Product repos (renglo-lib, extensions, …)
+One stack per publisher AWS account. Product repos (renglo-lib, extensions, …)
 are not parameterized here — they publish by assuming the OIDC role.
 """
 
@@ -25,11 +25,11 @@ PYTHON_REPO_DEFAULT = "python-store"
 NPM_REPO_DEFAULT = "npm-store"
 
 
-def sanitize_domain_name(studio_name: str) -> str:
-    raw = studio_name.strip().lower().replace("_", "-")
+def sanitize_domain_name(publisher_name: str) -> str:
+    raw = publisher_name.strip().lower().replace("_", "-")
     cleaned = re.sub(r"[^a-z0-9-]", "", raw)
     if not cleaned:
-        raise ValueError("studio_name must contain letters or digits")
+        raise ValueError("publisher_name must contain letters or digits")
     if cleaned[0].isdigit():
         cleaned = f"pkg-{cleaned}"
     return cleaned[:50]
@@ -62,7 +62,7 @@ class PublisherStack(Stack):
         scope: Construct,
         construct_id: str,
         *,
-        studio_name: str,
+        publisher_name: str,
         github_org: str,
         github_publish_repos: list[str] | None = None,
         reader_aws_accounts: list[str] | None = None,
@@ -73,12 +73,12 @@ class PublisherStack(Stack):
         super().__init__(
             scope,
             construct_id,
-            description=f"Studio package publisher ({studio_name})",
+            description=f"Package publisher ({publisher_name})",
             **kwargs,
         )
         aws_account = self.account
         aws_region = self.region
-        domain_name = sanitize_domain_name(studio_name)
+        domain_name = sanitize_domain_name(publisher_name)
         python_repository = (python_repository or PYTHON_REPO_DEFAULT).strip() or PYTHON_REPO_DEFAULT
         npm_repository = (npm_repository or NPM_REPO_DEFAULT).strip() or NPM_REPO_DEFAULT
         readers = [a.strip() for a in (reader_aws_accounts or []) if str(a).strip()]
@@ -121,7 +121,7 @@ class PublisherStack(Stack):
             self,
             "PythonStore",
             repository_name=python_repository,
-            description=f"{studio_name} Python packages",
+            description=f"{publisher_name} Python packages",
             **repo_kwargs,
         )
         python_repo.add_resource_dependency(domain)
@@ -136,7 +136,7 @@ class PublisherStack(Stack):
             self,
             "NpmStore",
             repository_name=npm_repository,
-            description=f"{studio_name} npm packages",
+            description=f"{publisher_name} npm packages",
             **npm_kwargs,
         )
         npm_repo.add_resource_dependency(domain)
@@ -175,7 +175,7 @@ class PublisherStack(Stack):
         publish_role = iam.Role(
             self,
             "OidcPublishRole",
-            role_name=f"GitHubActionsPublishRole-{studio_name}",
+            role_name=f"GitHubActionsPublishRole-{publisher_name}",
             assumed_by=iam.WebIdentityPrincipal(
                 oidc_provider.open_id_connect_provider_arn,
                 conditions={
@@ -190,7 +190,7 @@ class PublisherStack(Stack):
                 },
             ),
             inline_policies={
-                f"PublishToCodeArtifact-{studio_name}": iam.PolicyDocument(
+                f"PublishToCodeArtifact-{publisher_name}": iam.PolicyDocument(
                     statements=[
                         iam.PolicyStatement(
                             sid="CodeArtifactDomain",
@@ -235,11 +235,11 @@ class PublisherStack(Stack):
                     ]
                 )
             },
-            description=f"GitHub Actions publishes {studio_name} packages to CodeArtifact",
+            description=f"GitHub Actions publishes {publisher_name} packages to CodeArtifact",
         )
 
         config = {
-            "studio_name": studio_name,
+            "publisher_name": publisher_name,
             "github_org": github_org,
             "domain": domain_name,
             "python_repository": python_repository,
@@ -253,10 +253,10 @@ class PublisherStack(Stack):
             type="String",
             tier="Standard",
             value=json.dumps(config, separators=(",", ":")),
-            description="Studio CodeArtifact endpoints for GitHub publish workflows",
+            description="CodeArtifact endpoints for GitHub publish workflows",
         )
 
-        CfnOutput(self, "StudioName", value=studio_name)
+        CfnOutput(self, "PublisherName", value=publisher_name)
         CfnOutput(self, "CodeArtifactDomainName", value=domain_name)
         CfnOutput(self, "CodeArtifactDomainOwner", value=aws_account)
         CfnOutput(self, "CodeArtifactPythonRepository", value=python_repository)
@@ -269,7 +269,7 @@ class PublisherStack(Stack):
 def _domain_policy(account: str, readers: list[str]) -> dict:
     statements: list[dict] = [
         {
-            "Sid": "StudioAccountDomain",
+            "Sid": "PublisherAccountDomain",
             "Effect": "Allow",
             "Principal": {"AWS": f"arn:aws:iam::{account}:root"},
             "Action": [

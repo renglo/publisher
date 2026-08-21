@@ -106,8 +106,8 @@ Use the **publisher** AWS account and region (the account that will *own* the pa
 
 ```bash
 cd publisher/cdk
-cp studio-config.example.json studio-config.json
-# set studio_name (this is the publisher name), github_org, github_publish_repos, reader_aws_accounts
+cp publisher-config.example.json publisher-config.json
+# set publisher_name, github_org, github_publish_repos, reader_aws_accounts
 
 python3.12 -m venv ../venv
 source ../venv/bin/activate
