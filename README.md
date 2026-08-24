@@ -196,47 +196,47 @@ aws cloudformation describe-stacks \
   --stack-name "$STACK" \
   --profile "$AWS_PROFILE" \
   --region "$AWS_REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`OidcPublishRoleArn` || OutputKey==`PublisherConfigParameter`].[OutputKey,OutputValue]' \
+  --query 'Stacks[0].Outputs[?OutputKey==`OidcPublishRoleArn` || OutputKey==`PublisherName`].[OutputKey,OutputValue]' \
   --output table
 ```
 
-Copy `OidcPublishRoleArn` and `PublisherConfigParameter`. 
+Copy `OidcPublishRoleArn` and `PublisherName`. Workflows read `/publisher/<PublisherName>/config` in SSM (you do not set that path). 
 
 #### 2c. Set repository variables
 
 In GitHub: **that repo → Settings → Secrets and variables → Actions → Variables → New repository variable**
 
 
-| Variable                 | Value                              | Notes                                          |
-| ------------------------ | ---------------------------------- | ---------------------------------------------- |
-| `AWS_PUBLISH_ROLE_ARN`   | `OidcPublishRoleArn` from 2b       | Same ARN in every connected repo               |
-| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` from 2b | Full SSM path, e.g. `/publisher/renglo/config` |
-| `AWS_REGION`             | Region from Step 1                 | Must match deploy region                       |
+| Variable               | Value                        | Notes                                          |
+| ---------------------- | ---------------------------- | ---------------------------------------------- |
+| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from 2b | Same ARN in every connected repo               |
+| `PUBLISHER_NAME`       | `PublisherName` from 2b      | e.g. `renglo` → SSM `/publisher/renglo/config` |
+| `AWS_REGION`           | Region from Step 1           | Must match deploy region                       |
 
-Set **`PACKAGE_DIR` only for single-artifact repos** (see 2d). Extension repos with both `package/` and `ui/` use [workflows/publish-extension.yml](workflows/publish-extension.yml) and do **not** need `PACKAGE_DIR`.
+
+Do not set any other Actions variables for the usual repos (`renglo-lib`, `renglo-api`, `data`, `schd`, …).
 
 #### 2d. Add the workflow file
 
 Pick **one row** for the repo:
 
-| Repo type | Layout | Workflow to copy | Destination |
-| --------- | ------ | ---------------- | ----------- |
-| Python only | `pyproject.toml` at root | [publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
-| Python only | `package/pyproject.toml` | [publish-python.yml](workflows/publish-python.yml) | `.github/workflows/publish.yml` |
-| npm only | `ui/package.json` | [publish-npm.yml](workflows/publish-npm.yml) | `.github/workflows/publish.yml` |
+
+| Repo type                    | Layout                   | Workflow to copy                                         | Destination                     |
+| ---------------------------- | ------------------------ | -------------------------------------------------------- | ------------------------------- |
+| Python only                  | `pyproject.toml` at root | [publish-python.yml](workflows/publish-python.yml)       | `.github/workflows/publish.yml` |
+| npm only                     | `package.json` at root   | [publish-npm.yml](workflows/publish-npm.yml)             | `.github/workflows/publish.yml` |
 | **Extension (Python + npm)** | `package/` **and** `ui/` | [publish-extension.yml](workflows/publish-extension.yml) | `.github/workflows/publish.yml` |
 
-**`PACKAGE_DIR`** (repo variable — single-artifact repos only):
 
-| When using | Set `PACKAGE_DIR` to | Examples |
-| ---------- | -------------------- | -------- |
-| `publish-python.yml`, Python at root | `.` | `renglo-lib`, `renglo-api` |
-| `publish-python.yml`, Python under `package/` | `package` | Rare — prefer `publish-extension.yml` if `ui/` also exists |
-| `publish-npm.yml` | `ui` | Standalone UI repos only |
+**Extension repos (`data`, `schd`, `dumbo`, …):** one git tag publishes **both** artifacts. [publish-extension.yml](workflows/publish-extension.yml) runs two jobs — Python from `package/`, npm from `ui/` — with directories fixed in the workflow. You only set the three variables above.
 
-**Extension repos (`data`, `schd`, `dumbo`, …):** one git tag publishes **both** artifacts. [publish-extension.yml](workflows/publish-extension.yml) runs two jobs — Python from `package/`, npm from `ui/` — with directories fixed in the workflow. You only set the three variables above (no `PACKAGE_DIR`).
+If the Python or npm tree is not at the repo root (and this is not an extension), see [Annex: `PACKAGE_DIR](#annex-package_dir)`.
 
-On release, bump **`version` in both** `package/pyproject.toml` and `ui/package.json` to the same semver before tagging.
+Repo-root `blueprints/*.json` stay where they are. The publish job copies them into `package/<import>/blueprints/` before `python -m build package` so the wheel includes the current tag. Do not move the git folder. Local helper: [scripts/stage_extension_blueprints.py](scripts/stage_extension_blueprints.py).
+
+After a tag is on CodeArtifact, pin it in the tenant releases BOM. Step-by-step (extension files vs release JSON): [docs/package-registry-extension-cutover.md](docs/package-registry-extension-cutover.md).
+
+On release, bump `**version` in both** `package/pyproject.toml` and `ui/package.json` to the same semver before tagging.
 
 Commit and push the workflow file to the repo's default branch.
 
@@ -256,7 +256,7 @@ By default, tags publish **only to CodeArtifact**. Set these on **that repo only
 
 **Warnings:**
 
-- **`PUBLISH_PUBLIC` makes the package public** on PyPI/npmjs — anyone can install it without CodeArtifact credentials.
+- `**PUBLISH_PUBLIC` makes the package public** on PyPI/npmjs — anyone can install it without CodeArtifact credentials.
 - **Public package ≠ public GitHub repo**, but open-source packages usually live in public repos. Do not enable for proprietary code.
 - **Public release is effectively irreversible.** Bump version and publish a fix; do not rely on unpublish.
 - Proprietary extensions (e.g. `props`) should never set `PUBLISH_PUBLIC`.
@@ -269,11 +269,11 @@ A git tag triggers the publish workflow. The **version consumers install** comes
 
 **What “bump the version” means:** increment the semver in the manifest before you release — e.g. `1.0.0` → `1.0.1` (patch), `1.1.0` (minor), or `2.0.0` (major).
 
-**Do these steps in order:**
+You are probably not sitting on `main`. That is fine — do the version bump on the branch that actually has the code. Then, **before you tag**, get that same code onto `main`. The publish job builds whatever commit the tag points at.
 
-**1. Declare the new version in the manifest(s)**
+**1. Bump the version on the branch that has the code**
 
-Python — edit `version` in `pyproject.toml`:
+Python — set `version` in `pyproject.toml`:
 
 ```toml
 [project]
@@ -289,35 +289,118 @@ npm-only — edit `version` in `ui/package.json` (or root `package.json`):
 "version": "1.0.1"
 ```
 
-**2. Commit and push to the main branch**
-
 ```bash
 git add pyproject.toml          # or package/pyproject.toml, ui/package.json, etc.
 git commit -m "Release 1.0.1"
-git push origin main
 ```
 
-**3. Tag with the same version (prefixed with** `v`**)**
+**2. Merge that branch into `main`, then tag `main`**
 
 ```bash
+git checkout main
+git pull origin main
+git merge your-branch           # the branch that has the code you want to release
+git push origin main
+
 git tag v1.0.1
 git push origin v1.0.1
 ```
 
-The tag push starts **Publish to publisher registry** in GitHub Actions. The workflow builds from `PACKAGE_DIR` and uploads `1.0.1` to CodeArtifact.
+The tag push starts **Publish to publisher registry** in GitHub Actions. The workflow builds the package and uploads `1.0.1` to CodeArtifact.
+
+**3. Confirm the version is on the registry**
+
+First, the Actions run must succeed: repo → **Actions** → the run for tag `v1.0.1`.
+
+Then check CodeArtifact itself (publisher AWS account, same region as the stack). Replace names and version with what you just published:
+
+```bash
+export AWS_PROFILE=<aws-profile>
+export AWS_REGION=<aws-region>
+export PUBLISHER_NAME=renglo          # stack output PublisherName
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text --profile "$AWS_PROFILE")
+
+# Python (renglo-lib, renglo-api, renglo-data, …)
+aws codeartifact list-package-versions \
+  --domain "$PUBLISHER_NAME" \
+  --domain-owner "$ACCOUNT" \
+  --repository python-store \
+  --format pypi \
+  --package renglo-data \
+  --query 'versions[?version==`1.0.1`].version' \
+  --output text \
+  --profile "$AWS_PROFILE" \
+  --region "$AWS_REGION"
+
+# npm (@renglo/data → namespace renglo, package data)
+aws codeartifact list-package-versions \
+  --domain "$PUBLISHER_NAME" \
+  --domain-owner "$ACCOUNT" \
+  --repository npm-store \
+  --format npm \
+  --namespace renglo \
+  --package data \
+  --query 'versions[?version==`1.0.1`].version' \
+  --output text \
+  --profile "$AWS_PROFILE" \
+  --region "$AWS_REGION"
+```
+
+Each command should print `1.0.1`. Empty output means that version is not in the store — do not pin it in a BOM yet.
+
+Optional consumer check (clean venv / empty npm cache):
+
+```bash
+aws codeartifact login --tool pip \
+  --domain "$PUBLISHER_NAME" \
+  --domain-owner "$ACCOUNT" \
+  --repository python-store \
+  --profile "$AWS_PROFILE" \
+  --region "$AWS_REGION"
+pip install "renglo-data==1.0.1"
+
+aws codeartifact login --tool npm \
+  --domain "$PUBLISHER_NAME" \
+  --domain-owner "$ACCOUNT" \
+  --repository npm-store \
+  --profile "$AWS_PROFILE" \
+  --region "$AWS_REGION"
+npm view @renglo/data@1.0.1 version
+```
 
 **Common mistakes:**
 
 
-| Mistake                                          | Result                                                 |
-| ------------------------------------------------ | ------------------------------------------------------ |
-| Tag before bumping the manifest                  | Old version gets republished                           |
-| Tag `v1.0.2` but manifest says `1.0.1`           | Confusing releases; consumers see `1.0.1` on the index |
-| Bump version but forget to commit before tagging | Tag points at a commit that still has the old version  |
-| Wrong `PACKAGE_DIR`                              | Build fails or publishes the wrong tree                |
+| Mistake                                                                 | Result                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Tag before bumping the manifest                                         | Old version gets republished                                                   |
+| Tag `v1.0.2` but manifest says `1.0.1`                                  | Confusing releases; consumers see `1.0.1` on the index                         |
+| Bump version but forget to commit before tagging                        | Tag points at a commit that still has the old version                          |
+| Tag `main` without merging your branch into it                          | Whatever was already on `main` is published; your branch is left behind        |
+| `git push origin main` while on another branch                          | Git says `Everything up-to-date`; `main` does not move                         |
+| Tag and `git push origin vX.Y.Z` before that commit is on remote `main` | GitHub: *“This commit does not belong to any branch”*; the tag still publishes |
 
 
-**Check the run:** repo → **Actions** → workflow run for the tag → confirm CodeArtifact upload succeeded.
+Do not add a BOM pin until step 3 printed the version.
 
 ---
 
+## Annex: `PACKAGE_DIR`
+
+You do **not** set `PACKAGE_DIR` on `renglo-lib`, `renglo-api`, or any extension.
+
+- **lib / api:** [publish-python.yml](workflows/publish-python.yml) defaults to `.` (`pyproject.toml` at the repo root).
+- **extensions:** [publish-extension.yml](workflows/publish-extension.yml) never reads `PACKAGE_DIR`. It always builds `package/` and publishes `ui/`.
+
+Set it only when you copy `publish-python.yml` or `publish-npm.yml` into a **single-artifact** repo whose manifest is **not** at the root:
+
+
+| When using                                    | Set `PACKAGE_DIR` to | Example                               |
+| --------------------------------------------- | -------------------- | ------------------------------------- |
+| `publish-python.yml`, Python under `package/` | `package`            | Python-only repo with no `ui/`        |
+| `publish-npm.yml`, npm under `ui/`            | `ui`                 | Standalone UI repo with no `package/` |
+
+
+If that repo also has the other tree, use `publish-extension.yml` instead of `PACKAGE_DIR`.
+
+Wrong `PACKAGE_DIR` makes the build fail or publish the wrong tree. Leave it unset unless you are in one of the rows above.

@@ -2,9 +2,9 @@
 
 Team reference for moving Renglo deploys from **git clone in CI** to **versioned packages** (AWS CodeArtifact now; public PyPI / npmjs for open-source core later).
 
-**Status:** Planning  
-**Last updated:** 2026-08-20 (blueprint conclusions) 
-**Owners:** Platform / releases (<extension-name>-releases, launcher, bootstrap)
+**Status:** Phase 2 in progress (`data` is the reference extension)  
+**Last updated:** 2026-08-23 (Phase 2: wheels include `blueprints/`; code-first resolve)  
+**Owners:** Platform / releases (`<tenant>-releases`, launcher, bootstrap)
 
 ---
 
@@ -167,7 +167,7 @@ An extension has **three first-class artifacts**, one git repo, one authority:
 |----------|-----------|-------------------|-----------------------------|
 | 1. Python package | Extension git (`renglo/dumbo` or fork `acme/dumbo`) | PRs, maintainer, tags | CodeArtifact → PyPI |
 | 2. npm package | Same repo, same tag | Same | CodeArtifact → npmjs |
-| 3. Blueprints | Same repo, same tag (`blueprints/*.json`) | Same | **Not solved like 1–2 yet** |
+| 3. Blueprints | Same repo, same tag (`blueprints/*.json`) | Same | Current tag is copied into the Python wheel at publish/install |
 
 Forking the repo publishes under a **different namespace** (PyPI name, `@scope`, blueprint `handle`). Repo **public vs private** is whether those blueprints are public or private. Do **not** use a separate `*-blueprints` git repo.
 
@@ -218,9 +218,9 @@ Deploy `ops/publisher` once in the Renglo AWS account (`cdk deploy renglo-publis
 | Variable | Stack output |
 |----------|----------------|
 | `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` |
-| `PUBLISHER_CONFIG_PARAM` | `PublisherConfigParameter` (e.g. `/publisher/renglo/config`) |
+| `PUBLISHER_NAME` | `PublisherName` (e.g. `renglo`) |
 | `AWS_REGION` | Same region as deploy |
-| `PACKAGE_DIR` | `.`, `package`, or `ui` per repo layout |
+| `PACKAGE_DIR` | Single-artifact repos only: `.` (lib/api), `package`, or `ui`. Omit on `publish-extension.yml`. |
 
 Also list each repo in `github_publish_repos` in `publisher-config.json`. Domain and repository names come from the publisher's SSM config, not from product repos.
 
@@ -248,22 +248,32 @@ The publish role trusts `repo:<github_org>/<repos>` from `publisher-config.json`
 
 ### Phase 1 — Core platform off git clone
 
-- [ ] Update `<extension-name>-releases` Dockerfile: `pip install` from BOM instead of `install_backend_packages.py` over clones
-- [ ] Introduce release JSON v2 (`python` / `npm` sections)
-- [ ] Update `deploy.yml` / `deploy_console.yml`: CodeArtifact login; drop `checkout_release.py` for core Python
-- [ ] Console CI: `npm install` from BOM; update Vite aliases for production
+- [x] Update `<tenant>-releases` Dockerfile: install `wheels/` from the BOM, then leftover local trees (`install_backend_packages.py`)
+- [x] Introduce release JSON v2 (`python` / `npm` sections alongside `repos`)
+- [x] Update `deploy.yml` / `deploy_console.yml`: CodeArtifact login; skip `checkout_release.py` for pinned core Python
+- [x] Console CI: `npm install` from BOM when `npm` pins exist; Vite uses `node_modules/@renglo/*` when the local `ui/` tree is absent
 
 **Exit criteria:** Backend Lambda deploy succeeds with zero git clones for `renglo-lib` / `renglo-api`.
 
+**Cutover (operational — not flipped yet):** see [ops/docs/package-registry-migration.md](../../docs/package-registry-migration.md).
+
 ### Phase 2 — Extensions on registry
 
-- [ ] Each extension: one tag publishes **Python + npm**; wheel includes current `blueprints/`
-- [ ] Handlers Lambda zip: `pip install renglo-<ext>==…`
-- [ ] Blueprint resolve: **code (wheel) first**, then Dynamo, then optional public API
-- [ ] Seed Dynamo from installed package data (current tag only; full git-tag history later)
-- [ ] Migrate extensions one by one (`data` as reference implementation)
+- [x] Publish workflow stages repo-root `blueprints/` into the Python wheel (git layout unchanged)
+- [x] `data` is the reference: `package_data` + setup.py stage; other extensions declare `package-data`
+- [x] Backend image: leftover `extensions/*/package` installs stage sibling `blueprints/` into a temp copy
+- [x] Blueprint resolve: **code (wheel) first**, then Dynamo, then optional `BLUEPRINT_PUBLIC_BASE_URL`
+- [x] Seed Dynamo still uses Dynamo existence (not the code-first getter), current tag only
+- [ ] Pin each extension in the BOM after it is published (`renglo-<ext>` / `@renglo/<ext>`); start with `data`
+- [ ] External handlers-service still clones until it can `pip install` the same pins
 
 **Exit criteria:** Full stack deploy from BOM only; no `checkout_release.py`.
+
+**Operator playbook (what to change in each extension vs the BOM):** [package-registry-extension-cutover.md](package-registry-extension-cutover.md).
+
+**Do not invent pins.** After `renglo-data` (and `@renglo/data`) are on the publisher stores, add them to a new `releases/vX.Y.Z.json` `python` / `npm` section. The existing `repos.renglo/data` row can stay; the pin wins and CI will not clone it.
+
+**Git layout does not change.** `blueprints/` stays at the extension root. Publish/install copy those JSON files into `package/<import>/blueprints/` so `find_blueprints_dir` works from site-packages.
 
 ### Phase 3 — Open source
 
@@ -331,6 +341,8 @@ Smallest step that fixes private-repo CI pain for the backend:
 | `ops/<extension-name>-releases/Dockerfile`                          | Lambda image build                         |
 | `console/EXTENSIONS_README.md`                             | Extension UI; Method 3 = npm install       |
 | `ops/publisher/README.md`                                  | CodeArtifact + OIDC publish                 |
+| `ops/publisher/docs/package-registry-extension-cutover.md` | What to change in each extension vs the BOM |
+| `ops/publisher/scripts/stage_extension_blueprints.py`      | Copy repo-root `blueprints/` into the wheel |
 | `ops/bootstrap/README.md`                                  | Path A cloud deploy / CI contract          |
 
 
@@ -369,5 +381,8 @@ Unrelated to this migration; lives in `renglo-lib` / `renglo-api` packages once 
 | ---------- | ------------------------------------------------------------------------------ |
 | 2026-08-20 | Initial draft from platform discussion (git clone → CodeArtifact → public OSS) |
 | 2026-08-20 | Blueprints: third deliverable in the same repo; wheel + Dynamo seed; code-first resolve; history deferred |
+| 2026-08-23 | Phase 1: v2 BOM (`python` / `npm`), CodeArtifact pull in `stanley-releases`, Vite hybrid aliases |
+| 2026-08-23 | Phase 2: stage repo-root `blueprints/` into the wheel; code-first resolve; `data` is the reference |
+| 2026-08-23 | Operator playbook: `package-registry-extension-cutover.md` (extension files vs BOM pins) |
 
 
