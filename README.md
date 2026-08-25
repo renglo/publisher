@@ -234,7 +234,7 @@ If the Python or npm tree is not at the repo root (and this is not an extension)
 
 Repo-root `blueprints/*.json` stay where they are. The publish job copies them into `package/<import>/blueprints/` before `python -m build package` so the wheel includes the current tag. Do not move the git folder. Local helper: [scripts/stage_extension_blueprints.py](scripts/stage_extension_blueprints.py).
 
-After a tag is on CodeArtifact, pin it in the tenant releases BOM. Step-by-step (extension files vs release JSON): [docs/package-registry-extension-cutover.md](docs/package-registry-extension-cutover.md).
+After a tag is on CodeArtifact, pin it in the tenant BOM. Step-by-step (extension files vs BOM JSON): [docs/package-registry-extension-cutover.md](docs/package-registry-extension-cutover.md).
 
 On release, bump `**version` in both** `package/pyproject.toml` and `ui/package.json` to the same semver before tagging.
 

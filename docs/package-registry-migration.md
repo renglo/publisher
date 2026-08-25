@@ -4,13 +4,13 @@ Team reference for moving Renglo deploys from **git clone in CI** to **versioned
 
 **Status:** Phase 2 in progress (`data` is the reference extension)  
 **Last updated:** 2026-08-23 (Phase 2: wheels include `blueprints/`; code-first resolve)  
-**Owners:** Platform / releases (`<tenant>-releases`, launcher, bootstrap)
+**Owners:** Platform / BOM (`<tenant>-bom`, launcher, bootstrap)
 
 ---
 
 ## Why we are doing this
 
-Today `<extensio-name>-releases` CI clones private GitHub repos at pinned commits (`checkout_release.py`) and builds from source trees. That breaks when:
+Today `<tenant>-bom` CI clones private GitHub repos at pinned commits (`checkout_bom.py`) and builds from source trees. That breaks when:
 
 - Repos are private and the default `github.token` cannot read them
 - Extensions live in another org (e.g. `blalab/props`)
@@ -27,8 +27,8 @@ Today `<extensio-name>-releases` CI clones private GitHub repos at pinned commit
 
 | Today                                                        | Target                                                                      |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `releases/vX.Y.Z.json` pins **git SHAs**                     | BOM pins **package versions**                                               |
-| `checkout_release.py` clones into `dev/`, `extensions/`      | `pip` / `npm` install from CodeArtifact                                     |
+| `bom/vX.Y.Z.json` pins **git SHAs**                     | BOM pins **package versions**                                               |
+| `checkout_bom.py` clones into `dev/`, `extensions/`      | `pip` / `npm` install from CodeArtifact                                     |
 | Dockerfile runs `install_backend_packages.py` on local trees | `pip install renglo-lib==… renglo-api==… renglo-gmail==…`                   |
 | Console workflow clones repos; Vite aliases `../extensions/` | `npm install @renglo/console @renglo/data …`; prod aliases → `node_modules` |
 | Auth: GitHub PAT per org/repo                                | Auth: CodeArtifact token (one domain)                                       |
@@ -118,7 +118,7 @@ Proprietary extensions never publish to public indexes.
 
 ## Release bill of materials (v2 schema)
 
-Evolve `releases/vX.Y.Z.json` from git SHAs to version pins. Example:
+Evolve `bom/vX.Y.Z.json` from git SHAs to version pins. Example:
 
 ```json
 {
@@ -248,9 +248,9 @@ The publish role trusts `repo:<github_org>/<repos>` from `publisher-config.json`
 
 ### Phase 1 — Core platform off git clone
 
-- [x] Update `<tenant>-releases` Dockerfile: install `wheels/` from the BOM, then leftover local trees (`install_backend_packages.py`)
-- [x] Introduce release JSON v2 (`python` / `npm` sections alongside `repos`)
-- [x] Update `deploy.yml` / `deploy_console.yml`: CodeArtifact login; skip `checkout_release.py` for pinned core Python
+- [x] Update `<tenant>-bom` Dockerfile: install `wheels/` from the BOM, then leftover local trees (`install_backend_packages.py`)
+- [x] Introduce BOM JSON v2 (`python` / `npm` sections alongside `repos`)
+- [x] Update `deploy.yml` / `deploy_console.yml`: CodeArtifact login; skip `checkout_bom.py` for pinned core Python
 - [x] Console CI: `npm install` from BOM when `npm` pins exist; Vite uses `node_modules/@renglo/*` when the local `ui/` tree is absent
 
 **Exit criteria:** Backend Lambda deploy succeeds with zero git clones for `renglo-lib` / `renglo-api`.
@@ -267,11 +267,11 @@ The publish role trusts `repo:<github_org>/<repos>` from `publisher-config.json`
 - [ ] Pin each extension in the BOM after it is published (`renglo-<ext>` / `@renglo/<ext>`); start with `data`
 - [ ] External handlers-service still clones until it can `pip install` the same pins
 
-**Exit criteria:** Full stack deploy from BOM only; no `checkout_release.py`.
+**Exit criteria:** Full stack deploy from BOM only; no `checkout_bom.py`.
 
 **Operator playbook (what to change in each extension vs the BOM):** [package-registry-extension-cutover.md](package-registry-extension-cutover.md).
 
-**Do not invent pins.** After `renglo-data` (and `@renglo/data`) are on the publisher stores, add them to a new `releases/vX.Y.Z.json` `python` / `npm` section. The existing `repos.renglo/data` row can stay; the pin wins and CI will not clone it.
+**Do not invent pins.** After `renglo-data` (and `@renglo/data`) are on the publisher stores, add them to a new `bom/vX.Y.Z.json` `python` / `npm` section. The existing `repos.renglo/data` row can stay; the pin wins and CI will not clone it.
 
 **Git layout does not change.** `blueprints/` stays at the extension root. Publish/install copy those JSON files into `package/<import>/blueprints/` so `find_blueprints_dir` works from site-packages.
 
@@ -292,7 +292,7 @@ Smallest step that fixes private-repo CI pain for the backend:
 
 1. CodeArtifact domain live
 2. Publish `renglo-lib` + `renglo-api` on tag
-3. One `<extension-name>-releases` deploy using pip from CodeArtifact (extensions still git clone temporarily)
+3. One `<tenant>-bom` deploy using pip from CodeArtifact (extensions still git clone temporarily)
 
 ---
 
@@ -306,7 +306,7 @@ Smallest step that fixes private-repo CI pain for the backend:
 | Source code                           | Yes                        |
 | Blueprints (source)                   | Yes (in wheel or artifact) |
 | `customer-config.json`, CDK, launcher | No — infra                 |
-| `<extension-name>-releases` BOM + workflows    | No — orchestration         |
+| `<tenant>-bom` BOM + workflows    | No — orchestration         |
 | `env_config.py`, secrets              | No                         |
 
 
@@ -335,10 +335,10 @@ Smallest step that fixes private-repo CI pain for the backend:
 
 | Path                                                       | Role                                       |
 | ---------------------------------------------------------- | ------------------------------------------ |
-| `ops/<extension-name>-releases/README.md`                           | Current release JSON + deploy flow         |
-| `ops/<extension-name>-releases/scripts/checkout_release.py`         | Git clone (to be retired)                  |
-| `ops/<extension-name>-releases/scripts/install_backend_packages.py` | Local pip install (to be retired)          |
-| `ops/<extension-name>-releases/Dockerfile`                          | Lambda image build                         |
+| `ops/<tenant>-bom/README.md`                           | Current BOM JSON + deploy flow         |
+| `ops/<tenant>-bom/scripts/checkout_bom.py`         | Git clone (to be retired)                  |
+| `ops/<tenant>-bom/scripts/install_backend_packages.py` | Local pip install (to be retired)          |
+| `ops/<tenant>-bom/Dockerfile`                          | Lambda image build                         |
 | `console/EXTENSIONS_README.md`                             | Extension UI; Method 3 = npm install       |
 | `ops/publisher/README.md`                                  | CodeArtifact + OIDC publish                 |
 | `ops/publisher/docs/package-registry-extension-cutover.md` | What to change in each extension vs the BOM |
@@ -381,7 +381,7 @@ Unrelated to this migration; lives in `renglo-lib` / `renglo-api` packages once 
 | ---------- | ------------------------------------------------------------------------------ |
 | 2026-08-20 | Initial draft from platform discussion (git clone → CodeArtifact → public OSS) |
 | 2026-08-20 | Blueprints: third deliverable in the same repo; wheel + Dynamo seed; code-first resolve; history deferred |
-| 2026-08-23 | Phase 1: v2 BOM (`python` / `npm`), CodeArtifact pull in `stanley-releases`, Vite hybrid aliases |
+| 2026-08-23 | Phase 1: v2 BOM (`python` / `npm`), CodeArtifact pull in `stanley-bom`, Vite hybrid aliases |
 | 2026-08-23 | Phase 2: stage repo-root `blueprints/` into the wheel; code-first resolve; `data` is the reference |
 | 2026-08-23 | Operator playbook: `package-registry-extension-cutover.md` (extension files vs BOM pins) |
 

@@ -1,6 +1,6 @@
 # Take an extension off git clone
 
-Operator playbook for Phase 2 of the [package registry migration](package-registry-migration.md). Two different jobs: **extension repo** vs **releases BOM**. Do **not** move `blueprints/`. The git layout stays as it is.
+Operator playbook for Phase 2 of the [package registry migration](package-registry-migration.md). Two different jobs: **extension repo** vs **tenant BOM**. Do **not** move `blueprints/`. The git layout stays as it is.
 
 Start with **`data`**. Repeat the same steps for every other extension.
 
@@ -65,16 +65,16 @@ Do **not** add a BOM pin until that upload succeeded.
 
 ---
 
-## 3. In the releases repo (BOM)
+## 3. In the BOM repo
 
-Live deploy is `deploy_targets.yml` → `release:`. A pin that is not on the publisher store will break CI.
+Live deploy is `deploy_targets.yml` → `bom:`. A pin that is not on the publisher store will break CI.
 
 **To take `data` off git clone:**
 
 1. Copy the current BOM:
 
 ```bash
-cp releases/v0.1.0.json releases/v0.2.0.json
+cp bom/v0.1.0.json bom/v0.2.0.json
 ```
 
 2. In the new file, set `"version"` and **add pins**. Leave the `repos` row; the pin wins and CI will not clone that repo.
@@ -106,7 +106,7 @@ Use the **published** versions, not a version you hope exists.
 release: 0.2.0
 ```
 
-4. Commit and push the releases repo `main`.
+4. Commit and push the BOM repo `main`.
 
 **What you do not put in the BOM for an extension**
 
@@ -133,11 +133,11 @@ release: 0.2.0
 1. Merge extension file changes  (data first)
 2. Publish tag                   (data first)
 3. Confirm CodeArtifact has the version
-4. New releases/vX.Y.Z.json      add python + npm pins
+4. New bom/vX.Y.Z.json      add python + npm pins
 5. deploy_targets.yml            release: X.Y.Z
 6. Repeat 1–5 for the next extension
 ```
 
-Until step 4, deploy still **clones** that extension. After the pin, backend `pip install`s it and console `npm install`s it. `checkout_release.py` goes away only when **every** extension (and console) has a pin.
+Until step 4, deploy still **clones** that extension. After the pin, backend `pip install`s it and console `npm install`s it. `checkout_bom.py` goes away only when **every** extension (and console) has a pin.
 
-You do not change `blueprints/` in any extension. You merge the packaging/workflow diffs, publish a tag, then add two version strings to the release JSON.
+You do not change `blueprints/` in any extension. You merge the packaging/workflow diffs, publish a tag, then add two version strings to the BOM JSON.
