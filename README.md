@@ -108,18 +108,40 @@ A company can wear **both hats**. They deploy this stack for extensions they own
 
 ---
 
-## Deploy
+## Configure `publisher-config.json`
 
-Use the **publisher** AWS account and region (the account that will *own* the packages). Account and region are chosen at deploy time, not baked into product repos.
+CDK reads this file when you synth or deploy. Fill it in **before** the first deploy. A later change only takes effect after you redeploy.
 
 ```bash
 cd publisher/cdk
 cp publisher-config.example.json publisher-config.json
-# set publisher_name, github_org, github_publish_repos, reader_aws_accounts
+```
 
+
+| Field                                    | What to set                                                                                                                                                                                                 |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `publisher_name`                         | Short name for this publisher. Stack name is `<publisher_name>-publisher`; the CodeArtifact domain is a sanitized form of this name.                                                                        |
+| `github_org`                             | GitHub org that owns the product repos.                                                                                                                                                                     |
+| `github_publish_repos`                   | Repo **short names** that may assume the publish role (e.g. `renglo-lib`, `data`, `stanley-wl`). List every repo you already know will publish. Avoid `["*"]` unless you want **any** repo in the org. The stack trusts both classic (`repo:org/name`) and GitHub's immutable (`repo:org@id/name@id`) OIDC subjects — repos created after 15 Jul 2026 use the latter. |
+| `reader_aws_accounts`                    | AWS account IDs allowed to `pip` / `npm` install from this registry. Empty = same-account readers only. Each reader account still needs its own IAM (see above).                                            |
+| `python_repository` / `npm_repository`   | Usually leave as `python-store` / `npm-store`.                                                                                                                                                              |
+
+
+Account and region are **not** in this file. Templates use `AWS::AccountId` / `AWS::Region`. Choose them at deploy time with your AWS profile.
+
+**Adding a repo later:** append its short name to `github_publish_repos` and redeploy. Then do [Step 2](#step-2--configure-each-product-repository) for that repo (workflow file + Actions variables).
+
+---
+
+## Deploy
+
+Use the **publisher** AWS account and region (the account that will *own* the packages).
+
+```bash
+cd publisher/cdk
 python3.12 -m venv ../venv
 source ../venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt --index-url https://pypi.org/simple
 
 export AWS_PROFILE=<aws-profile>
 export AWS_REGION=<aws-region>
@@ -128,6 +150,8 @@ aws sts get-caller-identity --profile "$AWS_PROFILE"
 cdk synth --profile "$AWS_PROFILE"
 cdk deploy <publisher-name>-publisher --app "python app.py" --profile "$AWS_PROFILE"
 ```
+
+This `pip install` only downloads the CDK libraries used to deploy the stack. It does not publish anything. Product packages still go to CodeArtifact (`python-store` / `npm-store`) via the GitHub workflows below — not to public PyPI unless a repo sets `PUBLISH_PUBLIC`. `--index-url https://pypi.org/simple` is here so a leftover `aws codeartifact login --tool pip` (expired token in `~/.config/pip/pip.conf`) does not 401 this bootstrap step.
 
 `app.py` exits if `AWS_PROFILE` is unset or `default`. Pass `--profile` (CDK forwards it as `AWS_PROFILE`) or export the variable. Profile names are machine-local — they do not belong in `publisher-config.json`.
 
@@ -141,7 +165,7 @@ Publishing is configured **per product repository**. Credentials and registry po
 
 **Two gates must both allow the repo:**
 
-1. **AWS** — repo name listed in `github_publish_repos` in `publisher-config.json` (OIDC trust on the publish role).
+1. **AWS** — repo name listed in `github_publish_repos` in `publisher-config.json` (OIDC trust on the publish role). Set this before deploy; if you add a name later, redeploy.
 2. **GitHub** — that repo has the workflow file and repository variables set below.
 
 Product repos never hard-code CodeArtifact domain names or customer env names.
@@ -173,17 +197,9 @@ Example result: `us-east-1`. Write it down — you need it for every repo you co
 
 Repeat this block **for every repo** that should publish (e.g. `renglo-lib`, `renglo-api`, `data`, `schd`). Skip repos that will never publish.
 
-#### 2a. Allow the repo in AWS
+The repo must already appear in `github_publish_repos`. If you are adding a repo after the first deploy, add its name there and redeploy first.
 
-In `publisher-config.json`, list the repo **by name** under `github_publish_repos`:
-
-```json
-"github_publish_repos": ["renglo-lib", "renglo-api", "data", "schd"]
-```
-
-Redeploy the publisher stack if you change this list. Avoid `["*"]` unless you intentionally want **any** repo in the GitHub org to assume the publish role — listing explicit repo names is safer.
-
-#### 2b. Get the shared stack outputs (once)
+#### 2a. Get the shared stack outputs (once)
 
 Run these once; the same three values go into **each** product repo you connect:
 
@@ -202,33 +218,33 @@ aws cloudformation describe-stacks \
 
 Copy `OidcPublishRoleArn` and `PublisherName`. Workflows read `/publisher/<PublisherName>/config` in SSM (you do not set that path). 
 
-#### 2c. Set repository variables
+#### 2b. Set repository variables
 
 In GitHub: **that repo → Settings → Secrets and variables → Actions → Variables → New repository variable**
 
 
 | Variable               | Value                        | Notes                                          |
 | ---------------------- | ---------------------------- | ---------------------------------------------- |
-| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from 2b | Same ARN in every connected repo               |
-| `PUBLISHER_NAME`       | `PublisherName` from 2b      | e.g. `renglo` → SSM `/publisher/renglo/config` |
+| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from 2a | Same ARN in every connected repo               |
+| `PUBLISHER_NAME`       | `PublisherName` from 2a      | e.g. `renglo` → SSM `/publisher/renglo/config` |
 | `AWS_REGION`           | Region from Step 1           | Must match deploy region                       |
 
 
 Do not set any other Actions variables for the usual repos (`renglo-lib`, `renglo-api`, `data`, `schd`, …).
 
-#### 2d. Add the workflow file
+#### 2c. Add the workflow file
 
 Pick **one row** for the repo:
 
 
-| Repo type                    | Layout                   | Workflow to copy                                         | Destination                     |
-| ---------------------------- | ------------------------ | -------------------------------------------------------- | ------------------------------- |
-| Python only                  | `pyproject.toml` at root | [publish-python.yml](workflows/publish-python.yml)       | `.github/workflows/publish.yml` |
-| npm only                     | `package.json` at root   | [publish-npm.yml](workflows/publish-npm.yml)             | `.github/workflows/publish.yml` |
-| **Extension (Python + npm)** | `package/` **and** `ui/` | [publish-extension.yml](workflows/publish-extension.yml) | `.github/workflows/publish.yml` |
+| Repo type                         | Layout                                      | Workflow to copy                                         | Destination                     |
+| --------------------------------- | ------------------------------------------- | -------------------------------------------------------- | ------------------------------- |
+| Python only                       | `pyproject.toml` at root                    | [publish-python.yml](workflows/publish-python.yml)       | `.github/workflows/publish.yml` |
+| npm only                          | `package.json` at root                      | [publish-npm.yml](workflows/publish-npm.yml)             | `.github/workflows/publish.yml` |
+| **Extension (Python and/or npm)** | `package/` and/or `ui/`                     | [publish-extension.yml](workflows/publish-extension.yml) | `.github/workflows/publish.yml` |
 
 
-**Extension repos (`data`, `schd`, `dumbo`, …):** one git tag publishes **both** artifacts. [publish-extension.yml](workflows/publish-extension.yml) runs two jobs — Python from `package/`, npm from `ui/` — with directories fixed in the workflow. You only set the three variables above.
+**Extension repos (`data`, `schd`, `claw`, …):** one workflow file covers Python-only, npm-only, and both. [publish-extension.yml](workflows/publish-extension.yml) detects `package/pyproject.toml` and `ui/package.json` and skips the missing job. A tag publishes whichever artifacts exist. You only set the three variables above.
 
 If the Python or npm tree is not at the repo root (and this is not an extension), see [Annex: `PACKAGE_DIR](#annex-package_dir)`.
 
@@ -236,7 +252,7 @@ Repo-root `blueprints/*.json` stay where they are. The publish job copies them i
 
 After a tag is on CodeArtifact, pin it in the tenant BOM. Step-by-step (extension files vs BOM JSON): [docs/package-registry-extension-cutover.md](docs/package-registry-extension-cutover.md).
 
-On release, bump `**version` in both** `package/pyproject.toml` and `ui/package.json` to the same semver before tagging.
+On release, bump `**version` in every tree that exists** (`package/pyproject.toml` and/or `ui/package.json`) to the same semver before tagging.
 
 Commit and push the workflow file to the repo's default branch.
 
@@ -390,7 +406,7 @@ Do not add a BOM pin until step 3 printed the version.
 You do **not** set `PACKAGE_DIR` on `renglo-lib`, `renglo-api`, or any extension.
 
 - **lib / api:** [publish-python.yml](workflows/publish-python.yml) defaults to `.` (`pyproject.toml` at the repo root).
-- **extensions:** [publish-extension.yml](workflows/publish-extension.yml) never reads `PACKAGE_DIR`. It always builds `package/` and publishes `ui/`.
+- **extensions:** [publish-extension.yml](workflows/publish-extension.yml) never reads `PACKAGE_DIR`. It publishes `package/` and/or `ui/` when those trees exist.
 
 Set it only when you copy `publish-python.yml` or `publish-npm.yml` into a **single-artifact** repo whose manifest is **not** at the root:
 
