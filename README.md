@@ -102,7 +102,7 @@ A company can wear **both hats**. They deploy this stack for extensions they own
 | SSM                  | `/publisher/<publisher-name>/config` — domain and repo names for workflows |
 
 
-`reader_aws_accounts` adds a CodeArtifact **resource policy** so those accounts may call `GetAuthorizationToken` and `ReadFromRepository`. Each reader account still needs **its own** IAM (`codeartifact:GetAuthorizationToken`, `sts:GetServiceBearerToken`, `ReadFromRepository`). That policy lives on the project side, not in this stack.
+`reader_aws_accounts` adds a CodeArtifact **resource policy** so those accounts may call `GetAuthorizationToken` and `ReadFromRepository`. Each reader account still needs **its own** IAM (`codeartifact:GetAuthorizationToken`, `sts:GetServiceBearerToken`, `ReadFromRepository`). On the tenant/launcher side that is `package_registry.domain_owners` (list of foreign publisher AWS accounts; same-account read is always granted). BOM `deploy_targets.yml` lists login targets under `registries:` (omit for internal-only).
 
 **Multiple publishers in one AWS account:** Supported. Each `publisher_name` gets its own stack, CodeArtifact domain, IAM role, and SSM path. Deploy with a different `publisher-config.json` per publisher (or swap config between deploys). Only the GitHub OIDC provider is shared — set `CreateGitHubOIDC=false` on the second and later deploys.
 
