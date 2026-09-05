@@ -52,13 +52,24 @@ def _package_arn(region: str, account: str, domain: str, repo: str) -> str:
     return f"arn:aws:codeartifact:{region}:{account}:package/{domain}/{repo}/*/*"
 
 
-def _oidc_subs(github_org: str, github_publish_repos: list[str]) -> list[str] | str:
+def _oidc_subs(github_org: str, github_publish_repos: list[str]) -> list[str]:
+    """GitHub OIDC ``sub`` patterns for the publish role.
+
+    Repos created (or renamed/transferred) after 15 Jul 2026 mint
+    ``repo:org@ORG_ID/name@REPO_ID:…`` instead of ``repo:org/name:…``.
+    Trust both so older and newer product repos can assume the role.
+    """
     repos = [r.strip() for r in github_publish_repos if str(r).strip()]
     if not repos or repos == ["*"]:
-        return f"repo:{github_org}/*:*"
-    if len(repos) == 1:
-        return f"repo:{github_org}/{repos[0]}:*"
-    return [f"repo:{github_org}/{name}:*" for name in repos]
+        return [
+            f"repo:{github_org}/*:*",
+            f"repo:{github_org}@*/*:*",
+        ]
+    patterns: list[str] = []
+    for name in repos:
+        patterns.append(f"repo:{github_org}/{name}:*")
+        patterns.append(f"repo:{github_org}@*/{name}@*:*")
+    return patterns
 
 
 class PublisherStack(Stack):
