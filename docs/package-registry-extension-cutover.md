@@ -24,7 +24,7 @@ These packaging files must be on `main` before you tag. They do **not** invent a
 - `package/` Python handlers
 - `ui/` layout
 
-**Repos that already have this in the Stanley workspace:**  
+**Repos that already have this in the workspace:**  
 `data`, `schd`, `pes`, `props`, `breakdown`, `claw`, `dumbo`, `gmail`, `whatsapp`, `lgx`
 
 **Still to apply in its own repo:** `gro` (same three edits).
