@@ -98,7 +98,7 @@ Normalize names before public release (e.g. `gmail-mod` → `renglo-gmail`, bare
 - Two repositories: `python-store`, `npm-store` (upstream PyPI / npmjs)
 - GitHub OIDC **publish** role in the publisher account; product repos set one org variable `AWS_PUBLISH_ROLE_ARN`
 - Workflows read `/publisher/<publisher-name>/config` after assume-role (no customer env name in `renglo-lib`)
-- Optional `reader_aws_accounts` so companies like Stanley can `pip`/`npm` install
+- Optional `reader_aws_accounts` so tenant accounts can `pip`/`npm` install
 - Optional second hop to public PyPI / npmjs (`PUBLISH_PUBLIC`)
 
 
