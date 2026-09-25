@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "publisher"
+version = "0.1.0"
+description = "CodeArtifact publisher stack for Renglo package registries"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+packages = []
